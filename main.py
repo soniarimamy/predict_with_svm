@@ -1,6 +1,8 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from fastapi import FastAPI
 from pydantic import BaseModel
+from fastapi.responses import FileResponse
 
 app = FastAPI()
 
@@ -40,16 +42,29 @@ a = np.zeros(len(vocabulaire)) + 1
 ###############################
 ####### ENTRAINEMENT ##########
 ###############################
+loss_history = []
+accuracy_history = []
+
 for _ in range(epochs):
+    total_loss = 0
+    correct = 0
     for i in range(len(X)):
         x_i = X[i]
         y_i = Y[i]
         condition = y_i * np.dot(a, x_i) + b
         if condition  >= 1:
+            loss = 0
             a = a - lr * ( 2 * a)
         else:
+            loss = 1 - condition
             a = a - lr * ( 2 * a  - y_i * x_i)
             b = b - lr * (-y_i)
+        total_loss = total_loss + loss
+        prediction = 1 if (np.dot(a, x_i) + b) >= 0 else -1
+        if prediction == y_i:
+            correct = correct + 1
+    loss_history.append(total_loss)
+    accuracy_history.append(correct / len(X))
 ###############################
 ######## PREDICTION ###########
 ###############################
@@ -58,5 +73,29 @@ async def predict(preD: PredictData):
     X = one_hot(preD.mot)
     result = np.dot(a, X) + b
     return "cuisine" if result >= 1  else "vetement"
-mot = "robe"
-print("Input: ", mot, "Predicted category", predict(mot))
+
+@app.get('/show_perf_as_number')
+async def show_perf_as_number():
+    final_accuracy = accuracy_history[-1]
+    error_rate = 1 - final_accuracy
+    final_loss = loss_history[-1]
+    return {
+        "accuracy": float(final_accuracy),
+        "error_rate": float(error_rate),
+        "loss": float(final_loss)
+    }
+
+@app.get('/show_perf_as_graph')
+async def show_perf_as_graph():
+    plt.figure()
+    plt.plot(loss_history, label="Loss")
+    plt.plot(accuracy_history, label="Accuracy")
+    plt.plot([1 - acc for acc in accuracy_history], label = "Error")
+    plt.xlabel("Epochs")
+    plt.ylabel("Value")
+    plt.title("Performance SVM Model")
+    plt.legend()
+    file_path = "svm_perf.png"
+    plt.savefig(file_path)
+    plt.close()
+    return FileResponse(file_path, media_type="image/png")
